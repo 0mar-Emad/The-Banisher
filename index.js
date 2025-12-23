@@ -9,48 +9,62 @@ const client = new Client({
 
 const TOKEN = process.env.TOKEN;
 
+// 🔴 ROLE IDS
 const FORBIDDEN_ROLE = "1453134783252271196";
 const SAFE_ROLE = "1249806993401577504";
-const WARNING_TIME = 600_000; // 10min seconds
+
+// ⏳ 10 minutes (milliseconds)
+const WARNING_TIME = 600_000;
+
+// Track users with pending bans
+const pendingWarnings = new Map();
 
 client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
-// helper
+// ================= HELPERS =================
+
 function hasRole(member, roleId) {
   return member.roles.cache.has(roleId);
 }
 
-async function warnAndMaybeBan(member) {
-  const hasForbidden = hasRole(member, FORBIDDEN_ROLE);
-  const hasSafe = hasRole(member, SAFE_ROLE);
+async function handleForbiddenRole(member) {
+  // 🔄 ALWAYS fetch fresh data (prevents false bans)
+  const freshMember = await member.guild.members.fetch(member.id);
 
-  // no forbidden → do nothing
+  const hasForbidden = hasRole(freshMember, FORBIDDEN_ROLE);
+  const hasSafe = hasRole(freshMember, SAFE_ROLE);
+
+  // no forbidden → nothing to do
   if (!hasForbidden) return;
 
   // ❌ no safe role → instant ban
   if (!hasSafe) {
-    await member.ban({ reason: "Forbidden role without safe role" });
+    await freshMember.ban({
+      reason: "Forbidden role without safe role"
+    });
     return;
   }
 
-  // ⚠️ has safe role → warn first
+  // already warned → do nothing
+  if (pendingWarnings.has(freshMember.id)) return;
+
+  // ⚠️ warn user
   try {
-    await member.send(
+    await freshMember.send(
       `⚠️ **Warning**\n\nYou say you're irreligious aka kafir in **${member.guild.name}** even though you have muslim role.\n` +
       `you have to remove it within ${WARNING_TIME / 1000} seconds or you will be banned.`
     );
   } catch {
-    console.log(`Could not DM ${member.user.tag}`);
+    console.log(`Could not DM ${freshMember.user.tag}`);
   }
 
-  // wait
-  setTimeout(async () => {
+  // ⏳ schedule ban
+  const timeout = setTimeout(async () => {
     try {
-      const refreshed = await member.guild.members.fetch(member.id);
+      const refreshed = await freshMember.guild.members.fetch(freshMember.id);
 
-      // if still has forbidden role → ban
       if (hasRole(refreshed, FORBIDDEN_ROLE)) {
         await refreshed.ban({
           reason: "Forbidden role not removed after warning"
@@ -58,34 +72,39 @@ async function warnAndMaybeBan(member) {
       }
     } catch (err) {
       console.error("Post-warning check failed:", err.message);
+    } finally {
+      pendingWarnings.delete(freshMember.id);
     }
   }, WARNING_TIME);
+
+  pendingWarnings.set(freshMember.id, timeout);
 }
 
-// 🔴 On join
+// ================= EVENTS =================
+
+// 🔴 On member join
 client.on("guildMemberAdd", async (member) => {
-  await warnAndMaybeBan(member);
+  await handleForbiddenRole(member);
 });
 
 // 🔴 On role update
 client.on("guildMemberUpdate", async (oldMember, newMember) => {
-  const gainedForbidden =
-    !oldMember.roles.cache.has(FORBIDDEN_ROLE) &&
-     newMember.roles.cache.has(FORBIDDEN_ROLE);
+  const hadForbidden = oldMember.roles.cache.has(FORBIDDEN_ROLE);
+  const hasForbidden = newMember.roles.cache.has(FORBIDDEN_ROLE);
 
-  if (gainedForbidden) {
-    await warnAndMaybeBan(newMember);
+  // Forbidden role added
+  if (!hadForbidden && hasForbidden) {
+    await handleForbiddenRole(newMember);
+  }
+
+  // Forbidden role removed → cancel pending ban
+  if (hadForbidden && !hasForbidden) {
+    const timeout = pendingWarnings.get(newMember.id);
+    if (timeout) {
+      clearTimeout(timeout);
+      pendingWarnings.delete(newMember.id);
+    }
   }
 });
 
-// console.log("TOKEN VALUE:", TOKEN);
-// console.log("TOKEN TYPE:", typeof TOKEN);
-// console.log("TOKEN LENGTH:", TOKEN?.length);
-
 client.login(TOKEN);
-
-
-
-
-
-
