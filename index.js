@@ -31,9 +31,10 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
   }
 });
 
-console.log("TOKEN VALUE:", TOKEN);
-console.log("TOKEN TYPE:", typeof TOKEN);
-console.log("TOKEN LENGTH:", TOKEN?.length);
+// console.log("TOKEN VALUE:", TOKEN);
+// console.log("TOKEN TYPE:", typeof TOKEN);
+// console.log("TOKEN LENGTH:", TOKEN?.length);
 
 client.login(TOKEN);
+
 
