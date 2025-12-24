@@ -1,1 +1,1 @@
-A Discord bot devised to punish the faithless and uphold order.
+A Discord bot ordained to banish the faithless and uphold order.
